@@ -1,0 +1,11 @@
+# Carpeta interna de Godot (se regenera sola)
+.godot/
+# Plantilla de compilación de Android (se instala desde el editor)
+/android/
+# Archivos exportados
+*.apk
+*.aab
+export_credentials.cfg
+# Llave para firmar el APK (no se sube: guárdala bien, sin ella no se puede actualizar la app)
+/keystore/
+/builds/

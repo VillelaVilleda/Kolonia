@@ -1,0 +1,23 @@
+Scripts para generar los modelos de las tropas en Blender.
+
+Tropas actuales (sobre personajes KayKit, con esqueleto y animaciones):
+- kk_lib.py: carga personajes KayKit (assets/Extras/KayKit_Adventurers_2.0_FREE), pega
+  piezas propias a los huesos, arma la textura (atlas) y exporta.
+- kk_tropas.py: una función por tropa (caballero(), arquero(), jinete()...) y armas().
+  Ejecutar: import sys; sys.path.append(r"C:\Personal\Kolonia\tools\blender")
+            import kk_tropas; kk_tropas.todas()
+- Las tropas se guardan en assets/tropas/<nombre>.glb y las armas en assets/tropas/armas/.
+- El material "K_Tribu" es el color de la tribu: el juego lo pinta del color de cada jugador.
+- Todas usan el esqueleto "Rig_Medium", así que las animaciones de assets/animaciones
+  sirven para todas (también para tribus nuevas).
+
+Viejo (modelos hechos solo con figuras): kolonia_lib.py + units.py.
+
+Animaciones:
+- kk_anims.py: arma animaciones propias para el esqueleto Rig_Medium (espadazo, arco,
+  hechizo, escudazo, espadón, festejo) y las guarda en assets/animaciones/Kolonia_Ataques.glb.
+  Ejecutar: import kk_anims; kk_anims.todas()
+- Los jinetes y la catapulta traen sus propias animaciones dentro de su .glb
+  (Montado, Galope, Ataque_Montado, Golpe_Montado / Disparo). El caballo tiene huesos.
+- En el juego, scripts/view/unit_animator.gd reproduce lo que pasa en la partida
+  (caminar, atacar, flechas y piedras, daño, morir) usando los eventos de GameState.
