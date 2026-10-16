@@ -388,14 +388,14 @@ func _model(model_name: String, scale_mul := 1.0, rot := 0.0, tint := Color.WHIT
 	return n
 
 
-## Modelos de assets/extras (otros paquetes): se escalan a un ancho dado.
+## Modelos de assets/decor (otros paquetes): se escalan a un ancho dado.
 var _extra_sizes := {}
 
 
 func _extra(model_name: String, width: float, tint := Color.WHITE) -> Node3D:
 	var key := "extra_" + model_name
 	if not _models.has(key):
-		_models[key] = load("res://assets/extras/%s.glb" % model_name)
+		_models[key] = load("res://assets/decor/%s.glb" % model_name)
 	var n: Node3D = (_models[key] as PackedScene).instantiate()
 	if tint != Color.WHITE:
 		_tint_materials(n, tint)

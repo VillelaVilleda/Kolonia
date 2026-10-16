@@ -9,3 +9,5 @@ export_credentials.cfg
 # Llave para firmar el APK (no se sube: guárdala bien, sin ella no se puede actualizar la app)
 /keystore/
 /builds/
+# Paquetes de modelos originales (se quedan solo en la PC)
+/assets/Extras/
