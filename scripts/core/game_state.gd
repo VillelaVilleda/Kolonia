@@ -44,7 +44,12 @@ const RESOURCE_NAMES := {"comida": "comida", "madera": "madera", "oro": "oro"}
 const ROAD_COST := {"madera": 1}
 const PORT_COST := {"madera": 3}
 const PORT_POINTS := 1
-const CONNECTION_POINTS := 2  ## Para cada ciudad al quedar conectada con otra
+## Recursos extra al empezar para todos menos el primero en jugar.
+const LATER_START_BONUS := {"oro": 3}
+const CONNECTION_POINTS := 1  ## Cada ciudad gana 1 punto por cada ciudad que se conecte con ella
+const VETERAN_KILLS := 3       ## Bajas para que una tropa sea veterana
+const VETERAN_HP := 5          ## Vida extra de una veterana
+const VETERAN_ATTACK := 1.25   ## Multiplicador de ataque de una veterana
 ## Recompensas al subir de nivel una ciudad: se elige una de las opciones.
 ## Nivel 2: visión u oro extra. Nivel 3: más oro por turno o ampliar frontera.
 ## Nivel 4 en adelante: uno de los dos héroes de la tribu.
@@ -71,12 +76,14 @@ class Unit:
 	var exhausted := false  ## Recién creada o recién conquistó: no puede actuar este turno.
 	var capturing := false  ## Terminó su turno sobre una ciudad ajena.
 	var cooldowns := {}     ## habilidad -> turnos de espera restantes
+	var kills := 0          ## Enemigos eliminados
+	var veteran := false    ## Con 3 bajas sube a veterana: más vida y más ataque
 
 	func stats() -> Dictionary:
 		return UnitTypes.DATA[type]
 
 	func max_hp() -> int:
-		return int(stats()["vida"])
+		return int(stats()["vida"]) + (VETERAN_HP if veteran else 0)
 
 	func is_hero() -> bool:
 		return UnitTypes.is_hero(type)
@@ -181,6 +188,10 @@ func setup(seed_value: int, map_radius: int = 5, config: MatchConfig = null) -> 
 		fog = config.fog
 	for d in defs:
 		_add_player(d[0], d[2], d[3], d[4])
+	# Quien juega después empieza con un poco más (compensa mover primero)
+	for i in range(1, players.size()):
+		for k in LATER_START_BONUS:
+			players[i].res[k] += LATER_START_BONUS[k]
 	var city_defs := _place_cities(seed_value, defs)
 	var s := seed_value
 	for attempt in 300:
@@ -638,8 +649,25 @@ func defense_value(u: Unit) -> float:
 	return d
 
 
+func attack_value(u: Unit) -> float:
+	return float(stat(u, "ataque")) * (VETERAN_ATTACK if u.veteran else 1.0)
+
+
+## Combate: la fuerza de cada lado depende de su ataque/defensa y de cuánta vida le queda.
+## Devuelve [daño al defensor, daño del contraataque si sobrevive y alcanza].
+func combat(attacker: Unit, defender: Unit) -> Array:
+	var atk := attack_value(attacker)
+	var def := defense_value(defender)
+	var a := atk * float(attacker.hp) / float(attacker.max_hp())
+	var d := def * float(defender.hp) / float(defender.max_hp())
+	var total := maxf(a + d, 0.01)
+	var dmg := maxi(1, roundi(a / total * atk * 4.5))
+	var back := maxi(1, roundi(d / total * def * 4.5))
+	return [dmg, back]
+
+
 func calc_damage(attacker: Unit, defender: Unit) -> int:
-	return maxi(1, roundi(float(stat(attacker, "ataque")) * 2.0 - defense_value(defender)))
+	return int(combat(attacker, defender)[0])
 
 
 ## Estadística efectiva de una tropa donde está parada (p. ej. el Capitán en el agua).
@@ -768,6 +796,13 @@ func tile_actions(p: Vector2i) -> Array[Dictionary]:
 				"icono": "trigo" if r["edificio"] == "granja" else "hacha", "corto": b["nombre"],
 				"detalle": "+" + cost_text(b["produce"]) + " por turno, +%d puntos" % b["puntos"],
 				"bloqueo": _tech_block(b["tech"])})
+	elif mine and tiles[p] == "bosque" and not buildings.has(p):
+		# Cualquier bosque de tu territorio sirve para un aserradero
+		var b: Dictionary = BUILDINGS["aserradero"]
+		result.append({"id": "construir", "nombre": "Construir %s" % b["nombre"], "costo": b["costo"],
+			"icono": "hacha", "corto": b["nombre"],
+			"detalle": "+" + cost_text(b["produce"]) + " por turno, +%d puntos" % b["puntos"],
+			"bloqueo": _tech_block(b["tech"])})
 	if mine and buildings.has(p) and building_levels.get(p, 1) == 1:
 		var b: Dictionary = BUILDINGS[buildings[p]]
 		result.append({"id": "mejorar_edificio", "nombre": "Mejorar %s a nivel 2" % b["nombre"],
@@ -777,7 +812,7 @@ func tile_actions(p: Vector2i) -> Array[Dictionary]:
 	if road_spot_ok(p):
 		result.append({"id": "camino", "nombre": "Construir camino", "costo": ROAD_COST,
 			"icono": "camino", "corto": "Camino",
-			"detalle": "Las tropas avanzan el doble. Conectar ciudades da +%d puntos a cada una" % CONNECTION_POINTS,
+			"detalle": "Las tropas avanzan el doble. Cada ciudad gana +%d punto por cada ciudad conectada a ella" % CONNECTION_POINTS,
 			"bloqueo": _tech_block("caminos")})
 	if mine and tiles[p] == "agua" and not ports.has(p):
 		result.append({"id": "puerto", "nombre": "Construir puerto", "costo": PORT_COST,
@@ -802,7 +837,9 @@ func move_unit(u: Unit, to: Vector2i) -> bool:
 func attack(attacker: Unit, defender: Unit) -> bool:
 	if attacker.owner != current or not defender in attack_targets(attacker):
 		return false
-	var dmg := calc_damage(attacker, defender)
+	var result := combat(attacker, defender)
+	var dmg: int = result[0]
+	var target_pos := defender.pos
 	attacker.attacked = true
 	attacker.moved = true
 	var text := "%s atacó a %s (-%d)" % [attacker.stats()["nombre"], defender.stats()["nombre"], dmg]
@@ -810,15 +847,34 @@ func attack(attacker: Unit, defender: Unit) -> bool:
 		"desde": attacker.pos, "hacia": defender.pos, "dano": dmg})
 	if _damage(defender, dmg):
 		text += ". ¡Lo eliminó!"
+		_add_kill(attacker)
+		# Cuerpo a cuerpo: el que ganó ocupa la casilla del vencido
+		if Hex.distance(attacker.pos, target_pos) == 1 and can_enter(attacker.owner, attacker.pos, target_pos) \
+				and unit_at(target_pos) == null:
+			_event({"t": "mover", "id": attacker.id, "desde": attacker.pos, "hasta": target_pos})
+			attacker.pos = target_pos
+			update_vision(attacker.owner)
 	elif Hex.distance(attacker.pos, defender.pos) <= attack_range(defender):
-		var back := maxi(1, calc_damage(defender, attacker) - 1)
+		var back: int = result[1]
 		text += ", contraataque (-%d)" % back
 		_event({"t": "ataque", "id": defender.id, "objetivo": attacker.id,
 			"desde": defender.pos, "hacia": attacker.pos, "dano": back})
 		if _damage(attacker, back):
 			text += ". El atacante murió"
+			_add_kill(defender)
 	message.emit(text)
 	return true
+
+
+func _add_kill(u: Unit) -> void:
+	if not units.has(u.id):
+		return
+	u.kills += 1
+	if u.kills >= VETERAN_KILLS and not u.veteran:
+		u.veteran = true
+		u.hp = u.max_hp()
+		_event({"t": "veterano", "id": u.id, "vida": u.hp})
+		message.emit("¡%s es ahora veterano!" % u.stats()["nombre"])
 
 
 func train(city_pos: Vector2i, type: String) -> Unit:
@@ -848,10 +904,10 @@ func do_tile_action(p: Vector2i, action_id: String) -> bool:
 			resources.erase(p)
 			message.emit("Cosechaste %s (+%d puntos para %s)" % [r["nombre"], r["puntos"], c.name])
 		"construir":
-			var r: Dictionary = RESOURCES[resources[p]]
-			var b: Dictionary = BUILDINGS[r["edificio"]]
+			var kind: String = RESOURCES[resources[p]]["edificio"] if resources.has(p) else "aserradero"
+			var b: Dictionary = BUILDINGS[kind]
 			var c: City = cities[territory[p]]
-			buildings[p] = r["edificio"]
+			buildings[p] = kind
 			building_levels[p] = 1
 			c.points += int(b["puntos"])
 			resources.erase(p)
@@ -935,7 +991,7 @@ func _check_connections() -> void:
 			connections[key] = true
 			cities[a].points += CONNECTION_POINTS
 			cities[b].points += CONNECTION_POINTS
-			message.emit("¡%s y %s quedaron conectadas! +%d puntos a cada una" % [
+			message.emit("¡%s y %s quedaron conectadas! +%d punto para cada una" % [
 				cities[a].name, cities[b].name, CONNECTION_POINTS])
 
 
@@ -1138,6 +1194,7 @@ func _charge(u: Unit, dir: Vector2i, max_steps: int) -> void:
 			_event({"t": "golpe", "id": u.id, "hacia": next})
 			if not _damage(occ, calc_damage(u, occ)):
 				break  # Sobrevivió: la embestida se detiene frente a él.
+			_add_kill(u)
 		_event({"t": "mover", "id": u.id, "desde": u.pos, "hasta": next, "rapido": true})
 		u.pos = next
 	message.emit("¡Embestida! Golpeó a %d enemigo%s" % [hits, "" if hits == 1 else "s"])
@@ -1260,3 +1317,83 @@ func _update_players() -> void:
 			alive.append(p.id)
 	if alive.size() == 1:
 		winner = alive[0]
+
+
+# --- Copia del estado (para el juego en red) ---------------------------------------
+# El anfitrión manda una copia completa del estado después de cada acción; los demás
+# teléfonos la cargan encima del suyo (sin crear otro GameState, así el tablero y la
+# tropa seleccionada siguen apuntando a los mismos objetos).
+
+const _SAVED_VARS := ["radius", "tiles", "resources", "buildings", "building_levels", "flames",
+	"roads", "ports", "connections", "territory", "current", "turn", "winner", "fog", "_next_id"]
+
+
+static func _obj_to_dict(o: Object) -> Dictionary:
+	var d := {}
+	for prop in o.get_property_list():
+		if prop["usage"] & PROPERTY_USAGE_SCRIPT_VARIABLE:
+			d[prop["name"]] = o.get(prop["name"])
+	return d
+
+
+static func _fill_obj(o: Object, d: Dictionary) -> void:
+	for key in d:
+		o.set(key, d[key])
+
+
+func to_data() -> Dictionary:
+	var d := {}
+	for key in _SAVED_VARS:
+		d[key] = get(key)
+	var cs := {}
+	for pos in cities:
+		cs[pos] = _obj_to_dict(cities[pos])
+	d["cities"] = cs
+	var us := {}
+	for id in units:
+		us[id] = _obj_to_dict(units[id])
+	d["units"] = us
+	d["players"] = players.map(func(p): return _obj_to_dict(p))
+	d["explored"] = explored.duplicate()
+	return d
+
+
+func load_data(d: Dictionary) -> void:
+	for key in _SAVED_VARS:
+		if d.has(key):
+			set(key, d[key])
+	# Ciudades y tropas: se actualizan los objetos que ya existen
+	var cs: Dictionary = d["cities"]
+	for pos in cities.keys():
+		if not cs.has(pos):
+			cities.erase(pos)
+	for pos in cs:
+		if not cities.has(pos):
+			cities[pos] = City.new()
+		_fill_obj(cities[pos], cs[pos])
+	var us: Dictionary = d["units"]
+	for id in units.keys():
+		if not us.has(id):
+			units.erase(id)
+	for id in us:
+		if not units.has(id):
+			units[id] = Unit.new()
+		_fill_obj(units[id], us[id])
+	var ps: Array = d["players"]
+	while players.size() > ps.size():
+		players.pop_back()
+	for i in ps.size():
+		if i >= players.size():
+			players.append(Player.new())
+		_fill_obj(players[i], ps[i])
+	explored.clear()
+	for e in d["explored"]:
+		explored.append(e)
+
+
+func to_bytes() -> PackedByteArray:
+	return var_to_bytes(to_data()).compress(FileAccess.COMPRESSION_DEFLATE)
+
+
+func load_bytes(b: PackedByteArray) -> void:
+	load_data(bytes_to_var(b.decompress_dynamic(-1, FileAccess.COMPRESSION_DEFLATE)))

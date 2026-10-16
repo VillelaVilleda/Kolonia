@@ -11,7 +11,7 @@ func _run() -> void:
 	var wins := {}
 	var events := {}
 	var count := func(text: String):
-		for key in ["Elige una recompensa", "Nueva mejora", "amplió", "ve a", "oro por turno", "conectadas", "puerto", "invocado", "Embestida", "curó", "Muralla", "quemado", "subió a nivel", "Construiste", "Cosechaste", "conquistó", "ocupó"]:
+		for key in ["Elige una recompensa", "Nueva mejora", "amplió", "ve a", "oro por turno", "conectadas", "puerto", "invocado", "Embestida", "curó", "Muralla", "quemado", "subió a nivel", "Construiste", "Cosechaste", "conquistó", "ocupó", "veterano"]:
 			if text.contains(key):
 				events[key] = events.get(key, 0) + 1
 	var max_turns := 150

@@ -76,6 +76,8 @@ func _play(e: Dictionary) -> void:
 			await _ability(e)
 		"nace":
 			_spawn(e)
+		"veterano":
+			await _veteran(e)
 
 
 # --- Moverse ---------------------------------------------------------------------------
@@ -237,7 +239,8 @@ func _hurt(e: Dictionary) -> void:
 	TroopModel.play(n.get_node("Model"), TroopModel.hurt_anim(type), type)
 	popup_text(n.position + Vector3(0, 1.0, 0), "-%d" % e["dano"], Color(1, 0.35, 0.3))
 	if e.has("vida"):
-		(n.get_node("Label") as Label3D).text = "%s %d" % [n.get_meta("sigla"), e["vida"]]
+		var flag: Node3D = n.get_node("Flag")
+		board.set_flag(n, e["vida"], flag.get_meta("veteran", false))
 	_flash(n)
 
 
@@ -260,7 +263,7 @@ func _die(e: Dictionary) -> void:
 		return
 	var type: String = n.get_meta("type")
 	var model: Node3D = n.get_node("Model")
-	n.get_node("Label").visible = false
+	n.get_node("Flag").visible = false
 	var anim := TroopModel.death_anim(type)
 	if anim != "":
 		TroopModel.play(model, anim, type, false)
@@ -311,6 +314,20 @@ func _spawn(e: Dictionary) -> void:
 	var tw := create_tween()
 	tw.tween_property(model, "scale", s, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	TroopModel.play(model, "general/Spawn_Ground", n.get_meta("type"))
+
+
+## La tropa mató a 3 enemigos: festeja, se cura y su bandera cambia.
+func _veteran(e: Dictionary) -> void:
+	var n := _node(e["id"])
+	if not _visible(n):
+		return
+	var type: String = n.get_meta("type")
+	board.set_flag(n, e.get("vida", 0), true)
+	popup_text(n.position + Vector3(0, 1.2, 0), "¡Veterano!", Color(1.0, 0.85, 0.3))
+	if type not in TroopModel.MOUNTED and type != "catapulta":
+		TroopModel.play(n.get_node("Model"), "kol/Festejo", type)
+	_flash(n)
+	await _wait(0.6)
 
 
 ## Texto que sube y se desvanece (daño, curación).

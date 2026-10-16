@@ -33,10 +33,13 @@ var map_size := "pequeno"
 var color_index := 0
 var tribe := "reino"
 var fog := true
+## Partida en red: colores de los jugadores humanos (el anfitrión primero). En red,
+## "enemies" es la cantidad de bots.
+var humans: Array = []
 
 
 func player_count() -> int:
-	return enemies + 1
+	return humans.size() + enemies if not humans.is_empty() else enemies + 1
 
 
 ## El tamaño elegido o, si no caben todos, el más chico en el que sí caben.
@@ -55,11 +58,18 @@ func radius() -> int:
 ## Lista de jugadores: [nombre, adjetivo, color, es_bot, tribu]. El humano va primero.
 func players() -> Array:
 	var out := []
-	var c: Array = COLORS[color_index]
-	out.append([c[0], c[1], c[2], false, tribe])
+	var taken := [color_index]
+	if humans.is_empty():
+		var c: Array = COLORS[color_index]
+		out.append([c[0], c[1], c[2], false, tribe])
+	else:
+		taken = humans
+		for h in humans:
+			var hc: Array = COLORS[h]
+			out.append([hc[0], hc[1], hc[2], false, tribe])
 	var i := 0
 	while out.size() < player_count():
-		if i != color_index:
+		if not i in taken:
 			var b: Array = COLORS[i]
 			out.append([b[0], b[1], b[2], true, "reino"])
 		i += 1

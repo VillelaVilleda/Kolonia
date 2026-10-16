@@ -1,0 +1,75 @@
+{
+ "armas": {
+  "guardia_imperial": [
+   [
+    "dao",
+    "handslot.r"
+   ]
+  ],
+  "guardia_tigre": [
+   [
+    "alabarda",
+    "handslot.r"
+   ],
+   [
+    "escudo_tigre",
+    "handslot.l"
+   ]
+  ],
+  "ballestero": [
+   [
+    "ballesta_repeticion",
+    "handslot.l",
+    [
+     0,
+     0,
+     180
+    ]
+   ]
+  ],
+  "jinete_chino": [
+   [
+    "dao",
+    "handslot.r"
+   ]
+  ],
+  "lancero_chino": [
+   [
+    "guandao",
+    "handslot.r"
+   ]
+  ],
+  "capitan_chino": [
+   [
+    "dao",
+    "handslot.r"
+   ],
+   [
+    "garfio",
+    "handslot.l"
+   ]
+  ],
+  "sun_wukong": [
+   [
+    "baston_ruyi",
+    "handslot.r"
+   ]
+  ]
+ },
+ "nombre": "China",
+ "tropas": {
+  "caballero": "guardia_imperial",
+  "escudero": "guardia_tigre",
+  "arquero": "ballestero",
+  "jinete": "jinete_chino",
+  "jinete_lancero": "lancero_chino",
+  "catapulta": "lanzacohetes",
+  "capitan": "capitan_chino",
+  "barco": "junco",
+  "heroe_1": "dragon",
+  "heroe_2": "sun_wukong"
+ },
+ "notas": {
+  "sun_wukong_copia": "La copia usa el mismo modelo de Sun Wukong, transparente."
+ }
+}

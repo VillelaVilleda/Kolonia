@@ -1,0 +1,77 @@
+{
+ "armas": {
+  "guerrera": [
+   [
+    "xifos",
+    "handslot.r"
+   ]
+  ],
+  "hoplita": [
+   [
+    "lanza_corta",
+    "handslot.r"
+   ],
+   [
+    "pelta",
+    "handslot.l"
+   ]
+  ],
+  "cazadora": [
+   [
+    "arco_liana",
+    "handslot.l",
+    [
+     0,
+     0,
+     180
+    ]
+   ]
+  ],
+  "jinete_ciervo": [
+   [
+    "xifos",
+    "handslot.r"
+   ]
+  ],
+  "jinete_alce": [
+   [
+    "lanza_plumas",
+    "handslot.r"
+   ]
+  ],
+  "capitana": [
+   [
+    "xifos",
+    "handslot.r"
+   ],
+   [
+    "garfio",
+    "handslot.l"
+   ]
+  ],
+  "reina_amazona": [
+   [
+    "arco_oro",
+    "handslot.l",
+    [
+     0,
+     0,
+     180
+    ]
+   ]
+  ]
+ },
+ "nombre": "Amazonas",
+ "tropas": {
+  "caballero": "guerrera",
+  "escudero": "hoplita",
+  "arquero": "cazadora",
+  "jinete": "jinete_ciervo",
+  "jinete_lancero": "jinete_alce",
+  "catapulta": "honda_gigante",
+  "capitan": "capitana",
+  "barco": "barco_amazonas",
+  "heroe_1": "arana",
+  "heroe_2": "reina"
+ }
+}

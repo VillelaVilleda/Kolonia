@@ -1,0 +1,72 @@
+{
+ "armas": {
+  "androide": [
+   [
+    "espada_energia",
+    "handslot.r"
+   ]
+  ],
+  "blindado": [
+   [
+    "baston_electrico",
+    "handslot.r"
+   ],
+   [
+    "escudo_energia",
+    "handslot.l"
+   ]
+  ],
+  "francotirador": [
+   [
+    "rifle_laser",
+    "handslot.l",
+    [
+     0,
+     0,
+     180
+    ]
+   ]
+  ],
+  "jinete_robot": [
+   [
+    "espada_energia",
+    "handslot.r"
+   ]
+  ],
+  "lancero_robot": [
+   [
+    "lanza_energia",
+    "handslot.r"
+   ]
+  ],
+  "capitan_robot": [
+   [
+    "espada_energia",
+    "handslot.r"
+   ],
+   [
+    "garfio",
+    "handslot.l"
+   ]
+  ],
+  "ingeniero": [
+   [
+    "llave_inglesa",
+    "handslot.r"
+   ]
+  ]
+ },
+ "nombre": "Robots",
+ "tropas": {
+  "caballero": "androide",
+  "escudero": "blindado",
+  "arquero": "francotirador",
+  "jinete": "jinete_robot",
+  "jinete_lancero": "lancero_robot",
+  "catapulta": "mortero",
+  "capitan": "capitan_robot",
+  "barco": "barco_robot",
+  "heroe_1": "maquina_asedio",
+  "heroe_2": "ingeniero"
+ }
+}

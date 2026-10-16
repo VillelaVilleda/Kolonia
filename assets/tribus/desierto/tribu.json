@@ -1,0 +1,73 @@
+{
+ "armas": {
+  "guerrero_nilo": [
+   [
+    "khopesh",
+    "handslot.r"
+   ]
+  ],
+  "guardia_templo": [
+   [
+    "lanza_desierto",
+    "handslot.r"
+   ],
+   [
+    "escudo_horus",
+    "handslot.l"
+   ]
+  ],
+  "arquero_dunas": [
+   [
+    "arco_compuesto",
+    "handslot.l",
+    [
+     0,
+     0,
+     180
+    ]
+   ]
+  ],
+  "jinete_camello": [
+   [
+    "cimitarra",
+    "handslot.r"
+   ]
+  ],
+  "lancero_camello": [
+   [
+    "lanza_desierto_larga",
+    "handslot.r"
+   ]
+  ],
+  "capitan_desierto": [
+   [
+    "cimitarra",
+    "handslot.r"
+   ],
+   [
+    "garfio",
+    "handslot.l"
+   ]
+  ],
+  "anubis": [
+   [
+    "cetro_ankh",
+    "handslot.r"
+   ]
+  ]
+ },
+ "nombre": "Desierto",
+ "tropas": {
+  "caballero": "guerrero_nilo",
+  "escudero": "guardia_templo",
+  "arquero": "arquero_dunas",
+  "jinete": "jinete_camello",
+  "jinete_lancero": "lancero_camello",
+  "catapulta": "trebuchet",
+  "capitan": "capitan_desierto",
+  "barco": "barco_desierto",
+  "heroe_1": "golem",
+  "heroe_2": "anubis",
+  "invocada": "momia"
+ }
+}

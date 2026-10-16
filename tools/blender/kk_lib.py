@@ -19,6 +19,7 @@ ROOT = os.environ.get("KOLONIA_ROOT", r"C:\Personal\Kolonia")
 EXTRAS = os.environ.get("KOLONIA_EXTRAS", os.path.join(ROOT, "assets", "Extras"))
 OUT = os.environ.get("KOLONIA_OUT", os.path.join(ROOT, "assets", "tropas"))
 KK = os.path.join(EXTRAS, "KayKit_Adventurers_2.0_FREE")
+KK_SKELETONS = os.path.join(EXTRAS, "KayKit_Skeletons_1.1_FREE", "characters", "gltf")
 
 # Zonas (en cuadros de 128 px) de cada textura KayKit que toman el color de la tribu.
 TEAM_CELLS = {
@@ -27,6 +28,7 @@ TEAM_CELLS = {
     "rogue": [(0, 2), (0, 3), (1, 2), (1, 3), (1, 4), (1, 5)],
     "mage": [(0, 2), (0, 3), (1, 2), (1, 3), (7, 2), (7, 3), (2, 2), (2, 3), (1, 4), (1, 5)],
     "barbarian": [(0, 2), (0, 3)],
+    "skeleton": [],
 }
 ATLAS_W, ATLAS_H = 2048, 1024
 CELL_W, CELL_H = 128, 256          # cuadros de la paleta propia (8 x 4)
@@ -45,8 +47,11 @@ def reset(name):
 
 def load_char(char, keep):
     """Importa un personaje KayKit y deja solo las partes de 'keep'
-    (sufijos como "Head", "Body", "ArmLeft"...)."""
-    path = os.path.join(KK, "Characters", "gltf", char + ".glb")
+    (sufijos como "Head", "Body", "ArmLeft"...). Los esqueletos (Skeleton_*) salen
+    del paquete KayKit Skeletons, que usa el mismo esqueleto Rig_Medium."""
+    skeleton = char.startswith("Skeleton_")
+    folder = KK_SKELETONS if skeleton else os.path.join(KK, "Characters", "gltf")
+    path = os.path.join(folder, char + ".glb")
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
     new = [o for o in bpy.data.objects if o not in before]
@@ -57,7 +62,7 @@ def load_char(char, keep):
     for o in new:
         if o.type != "MESH":
             continue
-        suffix = o.name.split("_", 1)[-1] if "_" in o.name else o.name
+        suffix = o.name.rsplit("_", 1)[-1] if "_" in o.name else o.name
         if o.parent != arm or suffix not in keep:
             bpy.data.objects.remove(o, do_unlink=True)
         else:
@@ -66,7 +71,7 @@ def load_char(char, keep):
     arm.data.name = "Rig_Medium"
     S["arm"] = arm
     S["tex_name"] = char.lower().split("_")[0]
-    S["tex"] = os.path.join(KK, "Characters", "gltf", S["tex_name"] + "_texture.png")
+    S["tex"] = os.path.join(folder, S["tex_name"] + "_texture.png")
     return arm
 
 
@@ -142,6 +147,15 @@ def move_rig(offset):
 # ---------------------------------------------------------------------------------------
 # Textura (atlas)
 
+def _lin(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def recolor(cells_hex):
+    """Repinta cuadros de la textura KayKit: {(cx, cy): "rrggbb"} (ver cuadros en la textura)."""
+    S.setdefault("recolor", {}).update(cells_hex)
+
+
 def _srgb(c):
     return c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
 
@@ -163,6 +177,15 @@ def _build_atlas(flat_mats):
         a = np.array(img.pixels[:], dtype=np.float32).reshape(img.size[1], img.size[0], 4)  # abajo->arriba
         a = a[::-1]  # arriba->abajo
         assert a.shape[0] == 1024 and a.shape[1] == 1024
+        # Cada tribu puede repintar cuadros de la textura KayKit (piel, ropa, metal...)
+        # conservando el degradado: {(cx, cy): "rrggbb"}
+        for (cx, cy), hexrgb in S.get("recolor", {}).items():
+            blk = a[cy * 128:(cy + 1) * 128, cx * 128:(cx + 1) * 128, :3]
+            v = blk.max(axis=2)
+            vmax = max(float(v.max()), 1e-3)
+            g = np.clip(v / vmax, 0, 1)[..., None]
+            rgb = np.array([int(hexrgb[i:i + 2], 16) / 255 for i in (0, 2, 4)], dtype=np.float32)
+            a[cy * 128:(cy + 1) * 128, cx * 128:(cx + 1) * 128, :3] = np.clip(g * rgb * 1.08, 0, 1)
         for (cx, cy) in _team_list():
             blk = a[cy * 128:(cy + 1) * 128, cx * 128:(cx + 1) * 128, :3]
             v = blk.max(axis=2)
@@ -214,6 +237,8 @@ def _materials(img):
 
 
 def _team_list():
+    if "team_only" in S:     # la tribu decide qué cuadros de la textura toman su color
+        return list(S["team_only"])
     return list(TEAM_CELLS.get(S.get("tex_name", ""), [])) + list(S.get("team_extra", []))
 
 

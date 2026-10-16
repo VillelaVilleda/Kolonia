@@ -1,0 +1,76 @@
+{
+ "armas": {
+  "guerrero_jaguar": [
+   [
+    "macuahuitl",
+    "handslot.r"
+   ]
+  ],
+  "guerrero_aguila": [
+   [
+    "lanza_obsidiana",
+    "handslot.r"
+   ],
+   [
+    "chimalli",
+    "handslot.l"
+   ]
+  ],
+  "arquero_maya": [
+   [
+    "arco_maya",
+    "handslot.l",
+    [
+     0,
+     0,
+     180
+    ]
+   ]
+  ],
+  "jinete_jaguar": [
+   [
+    "macuahuitl",
+    "handslot.r"
+   ]
+  ],
+  "lancero_jaguar": [
+   [
+    "lanza_obsidiana_larga",
+    "handslot.r"
+   ]
+  ],
+  "capitan_maya": [
+   [
+    "macuahuitl",
+    "handslot.r"
+   ],
+   [
+    "garfio",
+    "handslot.l"
+   ]
+  ],
+  "balam": [
+   [
+    "garras_obsidiana",
+    "handslot.r"
+   ],
+   [
+    "garras_obsidiana",
+    "handslot.l"
+   ]
+  ]
+ },
+ "nombre": "Maya",
+ "tropas": {
+  "caballero": "guerrero_jaguar",
+  "escudero": "guerrero_aguila",
+  "arquero": "arquero_maya",
+  "jinete": "jinete_jaguar",
+  "jinete_lancero": "lancero_jaguar",
+  "catapulta": "lanzapiedras",
+  "capitan": "capitan_maya",
+  "barco": "barco_maya",
+  "heroe_1": "quetzalcoatl",
+  "heroe_2": "balam"
+ }
+}

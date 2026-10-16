@@ -3,11 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://00f6mg8125jw"
-path.s3tc="res://.godot/imported/escudo_redondo_escudo_redondo_atlas.png-39583da32c329ba0a00905c1ca648f63.s3tc.ctex"
-path.etc2="res://.godot/imported/escudo_redondo_escudo_redondo_atlas.png-39583da32c329ba0a00905c1ca648f63.etc2.ctex"
+path="res://.godot/imported/escudo_redondo_escudo_redondo_atlas.png-39583da32c329ba0a00905c1ca648f63.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 generator_parameters={
 "md5": "4814831041f0c46cb45a88faf14a869f"
@@ -16,11 +14,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tropas/armas/escudo_redondo_escudo_redondo_atlas.png"
-dest_files=["res://.godot/imported/escudo_redondo_escudo_redondo_atlas.png-39583da32c329ba0a00905c1ca648f63.s3tc.ctex", "res://.godot/imported/escudo_redondo_escudo_redondo_atlas.png-39583da32c329ba0a00905c1ca648f63.etc2.ctex"]
+dest_files=["res://.godot/imported/escudo_redondo_escudo_redondo_atlas.png-39583da32c329ba0a00905c1ca648f63.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=0
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -42,4 +40,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=0
+detect_3d/compress_to=1

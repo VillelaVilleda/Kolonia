@@ -9,12 +9,12 @@ extends RefCounted
 const DATA := {
 	"caballero": {
 		"icono": "espada", "nombre": "Caballero", "sigla": "C",
-		"vida": 10, "ataque": 3, "defensa": 2, "movimiento": 1, "alcance": 1,
+		"vida": 10, "ataque": 2, "defensa": 2, "movimiento": 1, "alcance": 1,
 		"costo": 2, "requiere": "espada",
 	},
 	"escudero": {
 		"icono": "escudo", "nombre": "Caballero con escudo", "sigla": "E",
-		"vida": 12, "ataque": 2, "defensa": 4, "movimiento": 1, "alcance": 1,
+		"vida": 15, "ataque": 1, "defensa": 3, "movimiento": 1, "alcance": 1,
 		"costo": 4, "requiere": "escudo",
 	},
 	"jinete": {
@@ -24,17 +24,17 @@ const DATA := {
 	},
 	"jinete_lancero": {
 		"icono": "lanza", "nombre": "Jinete lancero", "sigla": "L",
-		"vida": 12, "ataque": 4, "defensa": 2, "movimiento": 2, "alcance": 1,
+		"vida": 12, "ataque": 3, "defensa": 2, "movimiento": 2, "alcance": 1,
 		"costo": 5, "requiere": "lanza",
 	},
 	"arquero": {
 		"icono": "arco", "nombre": "Arquero", "sigla": "A",
-		"vida": 8, "ataque": 2, "defensa": 1, "movimiento": 1, "alcance": 2,
+		"vida": 10, "ataque": 2, "defensa": 1, "movimiento": 1, "alcance": 2,
 		"costo": 3, "requiere": "arco",
 	},
 	"catapulta": {
 		"icono": "catapulta", "nombre": "Catapulta", "sigla": "K",
-		"vida": 8, "ataque": 4, "defensa": 1, "movimiento": 1, "alcance": 3,
+		"vida": 10, "ataque": 3, "defensa": 1, "movimiento": 1, "alcance": 3,
 		"costo": 6, "requiere": "ingenieria",
 	},
 	## Débil en tierra; en el agua ataca a distancia, defiende más y navega más rápido.
@@ -43,17 +43,17 @@ const DATA := {
 		"icono": "timon", "nombre": "Capitán de barco", "sigla": "B",
 		"vida": 10, "ataque": 1, "defensa": 1, "movimiento": 1, "alcance": 1,
 		"costo": 4, "requiere": "capitan",
-		"en_agua": {"ataque": 3, "defensa": 3, "movimiento": 2, "alcance": 2},
+		"en_agua": {"ataque": 2, "defensa": 2, "movimiento": 2, "alcance": 2},
 	},
 	# --- Héroes de la tribu roja (se invocan al subir una ciudad a nivel 3, 5, 7...) ---
 	"super_caballero": {
 		"icono": "corona", "nombre": "Súper caballero", "sigla": "SC", "heroe": true,
-		"vida": 20, "ataque": 5, "defensa": 3, "movimiento": 2, "alcance": 1,
+		"vida": 20, "ataque": 4, "defensa": 3, "movimiento": 2, "alcance": 1,
 		"costo": 0, "requiere": "heroe", "habilidades": ["embestida"],
 	},
 	"sacerdote": {
 		"icono": "baston", "nombre": "Sacerdote", "sigla": "S", "heroe": true,
-		"vida": 14, "ataque": 2, "defensa": 2, "movimiento": 1, "alcance": 2,
+		"vida": 15, "ataque": 2, "defensa": 2, "movimiento": 1, "alcance": 2,
 		"costo": 0, "requiere": "heroe", "habilidades": ["curacion", "muralla"],
 	},
 }

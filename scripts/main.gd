@@ -13,7 +13,7 @@ const CAMERA_ANGLE := 55.0
 const MIN_ZOOM := 5.0
 const MAX_ZOOM := 30.0
 const TAP_TOLERANCE := 14.0
-const BAR_HEIGHT := 96.0
+const BAR_HEIGHT := 118.0
 const NO_CELL := Vector2i(9999, 9999)
 
 var gs: GameState
@@ -68,17 +68,36 @@ var _in_menu := false
 var _menu_angle := 0.0
 var _game_id := 0                 ## Cambia al salir o reiniciar (corta los turnos de bots en curso)
 var _top_bar: PanelContainer
+var _top_pad: Control
+var _bottom_pad: Control
+var _ui_root: Control
+var _bar_h := BAR_HEIGHT
 var _pause_layer: Control
 var _over_again: Button
 var _over_watch: Button
 var _eliminated_shown := false
 var _sheet_locked := false        ## Con el candado puesto, tocar el mapa no abre el panel
 var _lock_button: Button
+var _restart_button: Button
+
+# Juego en red
+var net: Net
+var me := 0                       ## Jugador que maneja este teléfono
+var _waiting := false             ## Invitado: mandó una acción y espera la respuesta
 
 
 func _ready() -> void:
+	net = Net.new()
+	net.name = "Net"
+	add_child(net)
+	net.state_received.connect(_on_net_state)
+	net.game_started.connect(_on_net_game_started)
+	net.action_requested.connect(_on_net_action)
+	net.peer_left.connect(_on_net_peer_left)
+	net.host_lost.connect(_on_net_host_lost)
 	_setup_world()
 	_setup_ui()
+	_apply_safe_area()
 	_show_menu()
 
 
@@ -88,6 +107,10 @@ func _ready() -> void:
 func _show_menu() -> void:
 	_game_id += 1
 	bot_running = false
+	_waiting = false
+	me = 0
+	if net.in_game:
+		net.close()
 	_in_menu = true
 	_pause_layer.visible = false
 	_over_panel.visible = false
@@ -134,6 +157,7 @@ func _set_hud_visible(on: bool) -> void:
 func _on_pause_pressed() -> void:
 	if _in_menu:
 		return
+	_restart_button.visible = not net.is_online()
 	_pause_layer.visible = true
 
 
@@ -157,6 +181,8 @@ func _new_game() -> void:
 	gs.message.connect(_on_message)
 	gs.setup(randi(), 5, _config)
 	gs.events.clear()
+	me = 0
+	board.viewer = me
 	board.build(gs)
 	_log_lines.clear()
 	_over_panel.visible = false
@@ -164,8 +190,10 @@ func _new_game() -> void:
 	_eliminated_shown = false
 	_clear_selection()
 	cam_distance = 11.0
-	cam_target = Hex.to_world(gs.units_of(0)[0].pos)
+	cam_target = Hex.to_world(gs.units_of(me)[0].pos)
 	_update_camera()
+	if net.is_host():
+		net.start_game(gs)
 	_begin_turn()
 
 
@@ -175,6 +203,8 @@ func _begin_turn() -> void:
 	if gs.winner != GameState.NO_PLAYER:
 		_show_game_over()
 		return
+	if net.is_client():
+		return  # Los invitados solo siguen lo que manda el anfitrión
 	if gs.current_player().is_bot:
 		bot_running = true
 		_set_bar_enabled(false)
@@ -186,9 +216,11 @@ func _begin_turn() -> void:
 		if gs.winner == GameState.NO_PLAYER:
 			gs.end_turn()
 		_begin_turn()
-	else:
+	elif gs.current == me:
 		_set_bar_enabled(true)
 		_check_pending_rewards()
+	else:
+		_set_bar_enabled(false)  # Turno de otro jugador humano (en red)
 
 
 func _set_bar_enabled(on: bool) -> void:
@@ -198,11 +230,151 @@ func _set_bar_enabled(on: bool) -> void:
 
 
 func _on_end_turn_pressed() -> void:
-	if bot_running or gs.winner != GameState.NO_PLAYER:
+	if _locked() or gs.winner != GameState.NO_PLAYER:
 		return
 	_clear_selection()
-	gs.end_turn()
-	_begin_turn()
+	_act("terminar", [])
+
+
+## ¿Le toca a este teléfono y puede tocar el tablero?
+func _my_turn() -> bool:
+	return gs != null and gs.current == me and gs.winner == GameState.NO_PLAYER
+
+
+func _locked() -> bool:
+	return bot_running or _waiting or not _my_turn()
+
+
+## Toda acción del jugador pasa por aquí: sin red (o en el anfitrión) se hace en el
+## momento; un invitado se la pide al anfitrión y espera el nuevo estado.
+func _act(action: String, args: Array) -> void:
+	if net.is_client():
+		_waiting = true
+		net.send_action(action, args)
+		var id := _game_id
+		await get_tree().create_timer(2.0).timeout
+		if id == _game_id:
+			_waiting = false  # Por si el anfitrión no respondió (acción rechazada)
+		return
+	_apply_action(gs.current, action, args)
+
+
+func _apply_action(player: int, action: String, args: Array) -> bool:
+	if gs.current != player or gs.winner != GameState.NO_PLAYER or bot_running:
+		return false
+	var u: GameState.Unit = gs.units.get(args[0]) if action in ["mover", "atacar", "habilidad"] else null
+	if action in ["mover", "atacar", "habilidad"] and (u == null or u.owner != player):
+		return false
+	match action:
+		"mover":
+			if args[1] in gs.reachable(u):
+				gs.move_unit(u, args[1])
+		"atacar":
+			var target: GameState.Unit = gs.units.get(args[1])
+			if target != null and target in gs.attack_targets(u):
+				gs.attack(u, target)
+		"habilidad":
+			if args[2] == null:
+				gs.use_ability(u, args[1])
+			else:
+				gs.use_ability(u, args[1], args[2])
+		"investigar":
+			gs.research(args[0])
+		"entrenar":
+			if gs.cities.has(args[0]) and gs.cities[args[0]].owner == player:
+				gs.train(args[0], args[1])
+		"mejorar":
+			if gs.cities.has(args[0]) and gs.cities[args[0]].owner == player:
+				gs.upgrade_city(args[0])
+		"recompensa":
+			if gs.cities.has(args[0]) and gs.cities[args[0]].owner == player:
+				gs.choose_reward(args[0], args[1])
+		"accion":
+			gs.do_tile_action(args[0], args[1])
+		"terminar":
+			_clear_selection()
+			gs.end_turn()
+			_begin_turn()
+			return true
+		_:
+			return false
+	return true
+
+
+# --- Red ----------------------------------------------------------------------------------
+
+## Anfitrión: un invitado pidió una acción.
+func _on_net_action(player: int, action: String, args: Array) -> void:
+	if gs == null or _in_menu:
+		return
+	if _apply_action(player, action, args) and action != "terminar":
+		_refresh()
+
+
+## Anfitrión: un invitado se desconectó; un bot sigue jugando por él.
+func _on_net_peer_left(player: int) -> void:
+	if gs == null or player >= gs.players.size():
+		return
+	gs.players[player].is_bot = true
+	_refresh()
+	if gs.current == player and not bot_running:
+		_begin_turn()
+
+
+## Invitado: llegó el estado nuevo de la partida.
+func _on_net_state(state: PackedByteArray, events: Array) -> void:
+	if gs == null or _in_menu:
+		return
+	gs.load_bytes(state)
+	gs.events.append_array(events)
+	_waiting = false
+	_refresh()
+	if gs.winner != GameState.NO_PLAYER:
+		_show_game_over()
+		return
+	_set_bar_enabled(_my_turn() and not _reward_layer.visible)
+
+
+## Invitado: el anfitrión empezó la partida.
+func _on_net_game_started(state: PackedByteArray, my_player: int) -> void:
+	_game_id += 1
+	_in_menu = false
+	_menu.visible = false
+	_set_hud_visible(true)
+	me = my_player
+	gs = GameState.new()
+	gs.record_events = true
+	SimpleBot.is_busy = board.busy
+	gs.message.connect(_on_message)
+	gs.load_bytes(state)
+	board.viewer = me
+	board.build(gs)
+	_log_lines.clear()
+	_over_panel.visible = false
+	_pause_layer.visible = false
+	_eliminated_shown = false
+	_waiting = false
+	_clear_selection()
+	cam_distance = 11.0
+	var mine := gs.units_of(me)
+	cam_target = Hex.to_world(mine[0].pos if not mine.is_empty() else gs.cities.keys()[0])
+	_update_camera()
+	_refresh()
+	_set_bar_enabled(_my_turn())
+
+
+## Invitado: se cortó la conexión con el anfitrión.
+func _on_net_host_lost() -> void:
+	if _in_menu:
+		_menu.show_net_message("Se perdió la conexión con el anfitrión.")
+		return
+	_show_menu()
+	_menu.show_net_message("Se perdió la conexión con el anfitrión.")
+
+
+func _on_menu_host_play(config: MatchConfig) -> void:
+	config.humans = net.human_colors()
+	_on_menu_play(config)
 
 
 func _on_message(text: String) -> void:
@@ -214,18 +386,23 @@ func _on_message(text: String) -> void:
 
 ## Actualiza tablero, barra superior, resaltados y el panel inferior.
 func _refresh() -> void:
+	if net.is_host() and net.in_game and not _in_menu:
+		net.broadcast_state(gs, gs.events.duplicate())
 	board.sync()
 	var p := gs.current_player()
-	var me := gs.players[0]
-	var inc := gs.income(0)
+	var mine := gs.players[me]
+	var inc := gs.income(me)
 	if _in_menu:
 		return
-	_top_label.text = "Turno %d · %s" % [gs.turn, "Tu turno" if gs.current == 0 else "Juega " + p.name]
-	if not me.alive and not _eliminated_shown and gs.winner == GameState.NO_PLAYER:
+	var who := "Tu turno" if gs.current == me else "Juega " + p.name
+	if net.is_online() and gs.current != me and not p.is_bot:
+		who += " (en otro teléfono)"
+	_top_label.text = "Turno %d · %s" % [gs.turn, who]
+	if not mine.alive and not _eliminated_shown and gs.winner == GameState.NO_PLAYER:
 		_eliminated_shown = true
 		_show_game_over()
 	for res in _res_labels:
-		_res_labels[res].text = "%d  +%d" % [me.res[res], inc[res]]
+		_res_labels[res].text = "%d  +%d" % [mine.res[res], inc[res]]
 
 	if selected != null and not gs.units.has(selected.id):
 		_clear_selection()
@@ -293,7 +470,7 @@ func _select_tile(pos: Vector2i) -> void:
 
 
 func _on_units_pressed() -> void:
-	if bot_running:
+	if _locked():
 		return
 	# Recorre las tropas propias que todavía pueden hacer algo este turno.
 	var ready_units: Array[GameState.Unit] = []
@@ -311,7 +488,7 @@ func _on_units_pressed() -> void:
 
 
 func _on_tech_pressed() -> void:
-	if bot_running:
+	if _locked():
 		return
 	if sheet_mode == "tech" and not sheet_hidden:
 		_clear_selection()
@@ -324,8 +501,8 @@ func _on_tech_pressed() -> void:
 # --- Toques en el tablero -----------------------------------------------------------
 
 func _on_tap(screen_pos: Vector2) -> void:
-	if _in_menu or _pause_layer.visible or bot_running or gs.winner != GameState.NO_PLAYER \
-			or _reward_layer.visible or board.busy() or not gs.players[0].alive:
+	if _in_menu or _pause_layer.visible or _locked() or gs.winner != GameState.NO_PLAYER \
+			or _reward_layer.visible or board.busy() or not gs.players[me].alive:
 		return
 	var hex_pos: Variant = _screen_to_hex(screen_pos)
 	if hex_pos == null or not gs.tiles.has(hex_pos):
@@ -342,17 +519,17 @@ func _on_tap(screen_pos: Vector2) -> void:
 		var ability := targeting
 		targeting = ""
 		if h in gs.ability_targets(selected, ability):
-			gs.use_ability(selected, ability, h)
+			_act("habilidad", [selected.id, ability, h])
 		_refresh()
 		return
 
 	if selected != null:
 		if h in gs.reachable(selected):
-			gs.move_unit(selected, h)
+			_act("mover", [selected.id, h])
 			_refresh()
 			return
 		if unit_there != null and unit_there in gs.attack_targets(selected):
-			gs.attack(selected, unit_there)
+			_act("atacar", [selected.id, unit_there.id])
 			_refresh()
 			return
 
@@ -406,7 +583,7 @@ func _open_sheet() -> void:
 	_layout_sheet()
 	_sheet.modulate.a = 1.0
 	var final_y := _sheet.position.y
-	_sheet.position.y = final_y + _sheet.size.y + BAR_HEIGHT
+	_sheet.position.y = final_y + _sheet.size.y + _bar_h
 	if _sheet_tween:
 		_sheet_tween.kill()
 	_sheet_tween = create_tween()
@@ -566,10 +743,13 @@ func _unit_summary(u: GameState.Unit) -> void:
 
 
 func _build_city_sheet(c: GameState.City) -> void:
-	_sheet_title.text = "%s · Nivel %d" % [c.name, c.level]
+	if c.owner == gs.current:
+		_sheet_title.text = "Tu ciudad · Nivel %d" % c.level
+	elif c.owner == GameState.NO_PLAYER:
+		_sheet_title.text = "Ciudad abandonada"
+	else:
+		_sheet_title.text = "Ciudad de %s · Nivel %d" % [gs.players[c.owner].name, c.level]
 	if c.owner != gs.current:
-		_sheet_label("Ciudad abandonada" if c.owner == GameState.NO_PLAYER
-			else "Ciudad de %s" % gs.players[c.owner].name, 22)
 		_sheet_label("Deja una tropa dentro un turno completo para conquistarla.", 18, KoloniaTheme.TEXT_NOTE)
 		return
 	_city_info_row(c)
@@ -613,7 +793,10 @@ func _build_tile_sheet(h: Vector2i) -> void:
 		title += " · %s nv.%d" % [GameState.BUILDINGS[gs.buildings[h]]["nombre"], gs.building_levels.get(h, 1)]
 	_sheet_title.text = title
 	if gs.territory.has(h):
-		_sheet_label("Territorio de %s" % gs.cities[gs.territory[h]].name, 18, KoloniaTheme.TEXT_NOTE)
+		var tc: GameState.City = gs.cities[gs.territory[h]]
+		if tc.owner >= 0:
+			_sheet_label("Territorio tuyo" if tc.owner == gs.current else "Territorio de %s" % gs.players[tc.owner].name,
+				18, KoloniaTheme.TEXT_NOTE)
 	var actions := gs.tile_actions(h)
 	if actions.is_empty():
 		_sheet_label("No hay nada que hacer aquí", 20, KoloniaTheme.TEXT_NOTE)
@@ -676,14 +859,14 @@ func _build_detail_view() -> void:
 				_sheet_label("✔ Ya investigada", 22, Color("3f8f22"))
 			else:
 				_detail_action("Investigar", {"oro": data["costo"]}, gs.can_research(id), func():
-					gs.research(id)
+					_act("investigar", [id])
 					_close_detail(), "BotonAzul")
 		"entrenar":
 			var data: Dictionary = UnitTypes.DATA[id]
 			_detail_header(data["icono"], data["nombre"], "Tropa de %s" % gs.cities[sel_city].name, false)
 			_unit_type_stats(id)
 			_detail_action("Entrenar", {"comida": data["costo"]}, gs.can_train(sel_city, id), func():
-				gs.train(sel_city, id)
+				_act("entrenar", [sel_city, id])
 				_close_detail(), "BotonVerde")
 		"mejorar":
 			var c: GameState.City = gs.cities[id]
@@ -693,7 +876,7 @@ func _build_detail_view() -> void:
 			_sheet_box.add_child(row)
 			_stat(row, "estrella", "Puntos %d/%d" % [c.points, c.points_needed()])
 			_detail_action("Mejorar", {"oro": c.upgrade_cost()}, gs.can_upgrade_city(id), func():
-				gs.upgrade_city(id)
+				_act("mejorar", [id])
 				_close_detail(), "BotonAmarillo")
 		"recompensa":
 			var city_pos: Vector2i = id[0]
@@ -703,9 +886,9 @@ func _build_detail_view() -> void:
 			if option.begins_with("heroe:"):
 				_unit_type_stats(option.substr(6))
 			_detail_action("Elegir", {}, "", func():
-				gs.choose_reward(city_pos, option)
+				_act("recompensa", [city_pos, option])
 				_detail = {}
-				if option.begins_with("heroe:"):
+				if option.begins_with("heroe:") and gs.unit_at(city_pos) != null:
 					_select_unit(gs.unit_at(city_pos))
 				else:
 					_refresh(), "BotonAmarillo")
@@ -724,7 +907,7 @@ func _build_detail_view() -> void:
 			if reason == "" and not gs.can_afford(gs.current, action["costo"]):
 				reason = "Faltan recursos"
 			_detail_action("Hacer", action["costo"], reason, func():
-				gs.do_tile_action(h, action_id)
+				_act("accion", [h, action_id])
 				_close_detail(), "BotonVerde")
 		"habilidad":
 			var info: Dictionary = UnitTypes.ABILITIES[id]
@@ -734,7 +917,7 @@ func _build_detail_view() -> void:
 			_detail_action("Usar", {}, gs.can_use_ability(selected, id), func():
 				_detail = {}
 				if info["objetivo"] == "ninguno":
-					gs.use_ability(selected, id)
+					_act("habilidad", [selected.id, id, null])
 				else:
 					targeting = id
 				_refresh(), "BotonAzul")
@@ -973,7 +1156,7 @@ func _sheet_button(text: String, reason: String, action: Callable, style := "Bot
 ## y no se puede hacer nada más hasta elegir una.
 func _check_pending_rewards() -> void:
 	var pending: GameState.City = null
-	if not bot_running and gs.winner == GameState.NO_PLAYER and not gs.current_player().is_bot:
+	if not bot_running and not _waiting and _my_turn():
 		for c in gs.cities.values():
 			if c.owner == gs.current and not c.pending_rewards.is_empty():
 				pending = c
@@ -982,7 +1165,7 @@ func _check_pending_rewards() -> void:
 		if _reward_layer.visible:
 			_reward_layer.visible = false
 			_reward_city = NO_CELL
-			_set_bar_enabled(not bot_running and gs.winner == GameState.NO_PLAYER)
+			_set_bar_enabled(not _locked())
 		return
 	_set_bar_enabled(false)
 	if _reward_layer.visible and _reward_city == pending.pos:
@@ -1040,11 +1223,11 @@ func _check_pending_rewards() -> void:
 		v.add_child(desc)
 		var city_pos := pending.pos
 		card.pressed.connect(func():
-			gs.choose_reward(city_pos, option)
+			_act("recompensa", [city_pos, option])
 			_reward_layer.visible = false
 			_reward_city = NO_CELL
 			_set_bar_enabled(true)
-			if option.begins_with("heroe:"):
+			if option.begins_with("heroe:") and gs.unit_at(city_pos) != null:
 				_select_unit(gs.unit_at(city_pos))
 			else:
 				_refresh())
@@ -1055,8 +1238,9 @@ func _show_game_over() -> void:
 	if gs.winner == GameState.NO_PLAYER:
 		_over_label.text = "¡Te eliminaron!"
 	else:
-		_over_label.text = "¡Ganaste!" if gs.winner == 0 else "Ganó %s" % gs.players[gs.winner].name
+		_over_label.text = "¡Ganaste!" if gs.winner == me else "Ganó %s" % gs.players[gs.winner].name
 	_over_watch.visible = gs.winner == GameState.NO_PLAYER
+	_over_again.visible = not net.is_online()
 	_over_panel.visible = true
 	_set_bar_enabled(false)
 
@@ -1130,6 +1314,7 @@ func _zoom(factor: float) -> void:
 ## Se adapta a la orientación: en vertical se fija el ancho visible,
 ## en horizontal el alto, para que el tablero se vea bien en ambos casos.
 func _on_screen_resized() -> void:
+	_apply_safe_area()
 	var size := get_viewport().get_visible_rect().size
 	if size.y > size.x:
 		camera.keep_aspect = Camera3D.KEEP_WIDTH
@@ -1139,6 +1324,35 @@ func _on_screen_resized() -> void:
 		camera.fov = 45.0
 	if _sheet != null and _sheet.visible:
 		_layout_sheet.call_deferred()
+
+
+## En teléfonos con cámara frontal "en la pantalla" (o barra de gestos), deja libre esa
+## zona: la barra de arriba y la de abajo crecen lo necesario.
+func _apply_safe_area() -> void:
+	if _top_pad == null:
+		return
+	var insets := Vector4.ZERO  # arriba, abajo, izquierda, derecha (en unidades de la UI)
+	var fake := OS.get_environment("KOLONIA_SAFE")
+	if fake != "":
+		var v := fake.split_floats(",")
+		insets = Vector4(v[0], v[1], v[2], v[3])
+	elif OS.has_feature("mobile"):
+		var win := Vector2(DisplayServer.window_get_size())
+		var safe := Rect2(DisplayServer.get_display_safe_area())
+		if win.x > 0 and win.y > 0 and safe.size.x > 0:
+			var vis := get_viewport().get_visible_rect().size
+			var k := vis.y / win.y
+			insets = Vector4(maxf(safe.position.y, 0.0) * k, maxf(win.y - safe.end.y, 0.0) * k,
+				maxf(safe.position.x, 0.0) * k, maxf(win.x - safe.end.x, 0.0) * k)
+	_top_pad.custom_minimum_size.y = insets.x
+	_bottom_pad.custom_minimum_size.y = insets.y
+	_bar_h = BAR_HEIGHT + insets.y
+	_bottom_bar.custom_minimum_size.y = _bar_h
+	_bottom_bar.offset_top = -_bar_h
+	_sheet.offset_bottom = -_bar_h + 10
+	_show_tab.offset_bottom = -_bar_h - 6
+	_ui_root.offset_left = insets.z
+	_ui_root.offset_right = -insets.w
 
 
 func _update_camera() -> void:
@@ -1194,15 +1408,22 @@ func _setup_ui() -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = KoloniaTheme.build()
+	_ui_root = root
 	layer.add_child(root)
 
 	# Barra superior: turno y recursos
 	var top := _panel(root, "PanelMadera")
 	_top_bar = top
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE, Control.PRESET_MODE_MINSIZE, 0)
+	var top_col := VBoxContainer.new()
+	top_col.add_theme_constant_override("separation", 0)
+	top.add_child(top_col)
+	_top_pad = Control.new()
+	_top_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_col.add_child(_top_pad)
 	var top_h := HBoxContainer.new()
 	top_h.add_theme_constant_override("separation", 6)
-	top.add_child(top_h)
+	top_col.add_child(top_h)
 	var pause := Button.new()
 	pause.theme_type_variation = "BotonAmarillo"
 	pause.icon = KoloniaTheme.icon("menu")
@@ -1309,9 +1530,16 @@ func _setup_ui() -> void:
 	_bottom_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_bottom_bar.custom_minimum_size = Vector2(0, BAR_HEIGHT)
 	_bottom_bar.offset_top = -BAR_HEIGHT
+	var bottom_col := VBoxContainer.new()
+	bottom_col.add_theme_constant_override("separation", 0)
+	_bottom_bar.add_child(bottom_col)
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 10)
-	_bottom_bar.add_child(bar)
+	bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bottom_col.add_child(bar)
+	_bottom_pad = Control.new()
+	_bottom_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom_col.add_child(_bottom_pad)
 	_units_button = _bar_button(bar, "Tropas", "espadas", "BotonAzul", _on_units_pressed)
 	_tech_button = _bar_button(bar, "Investigar", "libro", "BotonAzul", _on_tech_pressed)
 	_end_button = _bar_button(bar, "Pasar turno", "reloj", "BotonVerde", _on_end_turn_pressed)
@@ -1416,6 +1644,8 @@ func _setup_ui() -> void:
 		b.add_theme_font_size_override("font_size", 28)
 		b.pressed.connect(item[3])
 		pv.add_child(b)
+		if item[1] == "reiniciar":
+			_restart_button = b
 	_pause_layer.visible = false
 	_ui_blockers.append(_pause_layer)
 
@@ -1423,6 +1653,8 @@ func _setup_ui() -> void:
 	_menu = StartMenu.new()
 	root.add_child(_menu)
 	_menu.play.connect(_on_menu_play)
+	_menu.host_play.connect(_on_menu_host_play)
+	_menu.net = net
 
 
 func _bar_button(parent: Control, text: String, icon_name: String, style: String, action: Callable) -> Button:
@@ -1431,7 +1663,8 @@ func _bar_button(parent: Control, text: String, icon_name: String, style: String
 	b.icon = KoloniaTheme.icon(icon_name)
 	b.theme_type_variation = style
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", 21)
+	b.add_theme_font_size_override("font_size", 27)
+	b.add_theme_constant_override("icon_max_width", 54)
 	b.pressed.connect(action)
 	parent.add_child(b)
 	return b

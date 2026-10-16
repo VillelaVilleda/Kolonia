@@ -219,13 +219,11 @@ func sync() -> void:
 			node.visible = u.owner == viewer or seen.has(u.pos)
 		if anim.busy_ids.has(id):
 			continue  # La vida se actualiza cuando la animación muestra el golpe
-		var label: Label3D = node.get_node("Label")
-		var text := "%s %d" % [u.stats()["sigla"], u.hp]
-		if u.capturing:
-			text += " (!)"
-		label.text = text
+		set_flag(node, u.hp, u.veteran, "!" if u.capturing else "")
 		var done := u.exhausted or u.attacked or (u.moved and _gs.attack_targets(u).is_empty())
-		label.modulate = Color(0.6, 0.6, 0.6) if (done and u.owner == _gs.current) else Color.WHITE
+		var shade := Color(0.6, 0.6, 0.6) if (done and u.owner == _gs.current) else Color.WHITE
+		(node.get_node("Flag/Cloth") as Sprite3D).modulate = shade
+		(node.get_node("Flag/Hp") as Label3D).modulate = shade
 
 	for pos in _city_nodes:
 		var c: GameState.City = _gs.cities[pos]
@@ -236,16 +234,15 @@ func sync() -> void:
 			_city_keys[pos] = city_key
 			_build_city_houses(node.get_node("Houses"), c)
 		var label: Label3D = node.get_node("Label")
-		label.text = "%s  Nv.%d" % [c.name, c.level]
-		if not c.pending_rewards.is_empty() and c.owner == _gs.current:
-			label.text += "  ★"
+		# Sin nombre: el color ya dice de quién es. Solo una estrella si hay recompensa.
+		label.text = "★" if not c.pending_rewards.is_empty() and c.owner == _gs.current else ""
 
 	# Recursos, edificios y llamas: se reconstruyen solo si cambiaron.
 	var wanted := {}
 	for p in _gs.resources:
 		wanted[p] = "r_" + _gs.resources[p]
 	for p in _gs.buildings:
-		wanted[p] = "b_" + _gs.buildings[p] + "@" + str(_gs.tile_owner(p))
+		wanted[p] = "b_%s%d@%d" % [_gs.buildings[p], _gs.building_levels.get(p, 1), _gs.tile_owner(p)]
 	for p in _gs.flames:
 		wanted[p] = wanted.get(p, "") + "|fuego"
 	for p in _gs.roads:
@@ -265,6 +262,14 @@ func sync() -> void:
 			add_child(n)
 			_deco_nodes[p] = [wanted[p], n]
 		_deco_nodes[p][1].visible = _gs.is_explored(viewer, p)
+	# Donde hay camino, la loseta de camino reemplaza al pasto.
+	for p in _tile_nodes:
+		var base: Node3D = _tile_nodes[p].get_child(0)
+		base.visible = not (_deco_nodes.has(p) and _deco_nodes[p][0].contains("|camino") and _deco_nodes[p][1].visible)
+		# Con aserradero, el bosque se tala: quedan los tocones.
+		var cut: bool = _gs.buildings.get(p, "") == "aserradero"
+		for i in range(1, _tile_nodes[p].get_child_count()):
+			(_tile_nodes[p].get_child(i) as Node3D).visible = not cut
 
 
 func clear_highlights() -> void:
@@ -383,6 +388,58 @@ func _model(model_name: String, scale_mul := 1.0, rot := 0.0, tint := Color.WHIT
 	return n
 
 
+## Modelos de assets/extras (otros paquetes): se escalan a un ancho dado.
+var _extra_sizes := {}
+
+
+func _extra(model_name: String, width: float, tint := Color.WHITE) -> Node3D:
+	var key := "extra_" + model_name
+	if not _models.has(key):
+		_models[key] = load("res://assets/extras/%s.glb" % model_name)
+	var n: Node3D = (_models[key] as PackedScene).instantiate()
+	if tint != Color.WHITE:
+		_tint_materials(n, tint)
+	if not _extra_sizes.has(key):
+		_extra_sizes[key] = _bounds(n, Transform3D())
+	var box: AABB = _extra_sizes[key]
+	var k := width / maxf(box.size.x, box.size.z)
+	var holder := Node3D.new()
+	n.scale = Vector3.ONE * k
+	n.position = -Vector3(box.get_center().x, box.position.y, box.get_center().z) * k
+	holder.add_child(n)
+	return holder
+
+
+func _tint_materials(node: Node, tint: Color) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		for i in mi.mesh.get_surface_count():
+			var base := mi.mesh.surface_get_material(i) as BaseMaterial3D
+			var key := "tint_%d_%s" % [base.get_instance_id(), tint.to_html()]
+			if not _materials.has(key):
+				var m := base.duplicate() as BaseMaterial3D
+				m.albedo_color = m.albedo_color * tint
+				_materials[key] = m
+			mi.set_surface_override_material(i, _materials[key])
+	for child in node.get_children():
+		_tint_materials(child, tint)
+
+
+func _bounds(n: Node, t: Transform3D) -> AABB:
+	var tt := t * ((n as Node3D).transform if n is Node3D else Transform3D())
+	var r := AABB()
+	var first := true
+	if n is MeshInstance3D:
+		r = tt * (n as MeshInstance3D).get_aabb()
+		first = false
+	for c in n.get_children():
+		var a := _bounds(c, tt)
+		if a.size != Vector3.ZERO:
+			r = a if first else r.merge(a)
+			first = false
+	return r
+
+
 ## KayKit pinta con una pequeña paleta de colores en una sola imagen: hay que leerla
 ## "pixel por pixel" (sin suavizar), o los colores se mezclan entre sí.
 func _fix_materials(node: Node, tint := Color.WHITE) -> void:
@@ -447,47 +504,104 @@ func _tint_team(node: Node, color: Color) -> void:
 		_tint_team(child, color)
 
 
+## Para las losetas de camino: el pasto se tiñe igual que las demás casillas,
+## pero la tierra del camino conserva su color.
+var _grass_tex: Texture2D
+const ROAD_DIRT := Color(0.78, 0.66, 0.5)
+
+
+func _road_texture() -> Texture2D:
+	if _grass_tex != null:
+		return _grass_tex
+	var img := (load("res://assets/kaykit/hexagons_medieval.png") as Texture2D).get_image()
+	if img.is_compressed():
+		img.decompress()
+	img = img.duplicate()
+	for y in img.get_height():
+		for x in img.get_width():
+			var c := img.get_pixel(x, y)
+			var t := GRASS_TINT if c.g >= c.r - 0.02 and c.b < c.g * 0.6 else ROAD_DIRT
+			img.set_pixel(x, y, Color(c.r * t.r, c.g * t.g, c.b * t.b, c.a))
+	_grass_tex = ImageTexture.create_from_image(img)
+	return _grass_tex
+
+
+func _retexture(node: Node, tex: Texture2D) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		for i in mi.mesh.get_surface_count():
+			var base := mi.get_surface_override_material(i)
+			if base == null:
+				base = mi.mesh.surface_get_material(i)
+			var key := "tex_%d_%d" % [base.get_instance_id(), tex.get_instance_id()]
+			if not _materials.has(key):
+				var m := (base as BaseMaterial3D).duplicate() as BaseMaterial3D
+				m.albedo_texture = tex
+				_materials[key] = m
+			mi.set_surface_override_material(i, _materials[key])
+	for child in node.get_children():
+		_retexture(child, tex)
+
+
 func _make_deco(p: Vector2i, key: String) -> Node3D:
 	var root := Node3D.new()
 	root.position = Hex.to_world(p) + Vector3(0, tile_height(p), 0)
 	if key.begins_with("r_frutos"):
-		root.add_child(_shape(SphereMesh.new(), Vector3(0.28, 0.22, 0.28), _mat("arbusto", Color(0.2, 0.55, 0.2)), Vector3(0.45, 0.1, 0.25)))
-		for o in [Vector3(0.38, 0.2, 0.2), Vector3(0.52, 0.18, 0.3), Vector3(0.45, 0.24, 0.35)]:
-			root.add_child(_shape(SphereMesh.new(), Vector3(0.07, 0.07, 0.07), _mat("fruta", Color(0.9, 0.15, 0.2)), o))
+		var bush := _extra("arbusto_1", 0.72, Color(0.6, 0.95, 0.5))
+		bush.position = Vector3(0.38, 0, 0.28)
+		bush.rotation.y = 0.5
+		root.add_child(bush)
+		# Frutas grandes para que se lean desde lejos
+		for o in [Vector3(0.22, 0.3, 0.5), Vector3(0.42, 0.4, 0.5), Vector3(0.6, 0.26, 0.42), Vector3(0.3, 0.5, 0.36), Vector3(0.5, 0.16, 0.56), Vector3(0.15, 0.15, 0.42)]:
+			root.add_child(_shape(SphereMesh.new(), Vector3.ONE * 0.085, _mat("fruta", Color(0.9, 0.12, 0.18)), o))
 	elif key.begins_with("r_troncos"):
 		var lumber := _model("resource_lumber", 1.2, 0.4)
 		lumber.position = Vector3(0.35, 0, 0.3)
 		root.add_child(lumber)
 	elif key.begins_with("r_campo"):
+		# Tierra lista para sembrar: los cultivos aparecen al construir la granja
 		var dirt := _model("building_dirt", 0.55, KK_TILE_ROT)
 		dirt.position = Vector3(0.25, 0.01, 0.3)
 		root.add_child(dirt)
 	elif key.begins_with("r_arboleda"):
-		root.add_child(_shape(CylinderMesh.new(), Vector3(0.2, 0.15, 0.2), _mat("tronco", Color(0.5, 0.33, 0.18)), Vector3(0.45, 0.08, 0.3)))
+		var stumps := _model("trees_A_cut", 0.5, 0.3)
+		stumps.position = Vector3(0.35, 0, 0.3)
+		root.add_child(stumps)
 	elif key.begins_with("b_granja"):
-		var grain := _model("building_grain", 1.0, KK_TILE_ROT)
-		root.add_child(grain)
+		# Nivel 1: los cultivos. Nivel 2: además, el molino.
+		var level2 := key.begins_with("b_granja2")
+		var field := _extra("parcela", 0.95 if level2 else 0.8)
+		field.position = Vector3(0.12, 0, 0.22) if level2 else Vector3(0.1, 0, 0.15)
+		field.rotation.y = KK_TILE_ROT
+		root.add_child(field)
+		if level2:
+			var mill := _extra("molino", 0.62)
+			mill.position = Vector3(-0.42, 0, -0.42)
+			root.add_child(mill)
 	elif key.begins_with("b_aserradero"):
-		var mill := _model("building_lumbermill_red", 0.55, 0.0)
+		# Nivel 1: el aserradero. Nivel 2: más grande y con madera apilada.
+		var level2 := key.begins_with("b_aserradero2")
+		var mill := _model("building_lumbermill_red", 0.78 if level2 else 0.62, 0.0)
 		var mill_owner := _gs.tile_owner(p)
 		if mill_owner >= 0:
 			_tint_team(mill, _gs.players[mill_owner].color)
-		mill.position = Vector3(0.3, 0, 0.25)
+		mill.position = Vector3(0.25, 0, 0.15)
 		root.add_child(mill)
+		var stumps := _model("trees_A_cut", 0.85, 0.4)
+		stumps.position = Vector3(-0.15, 0, -0.1)
+		root.add_child(stumps)
+		if level2:
+			for o in [Vector3(-0.3, 0, 0.45), Vector3(0.62, 0, 0.5)]:
+				var pile := _model("resource_lumber", 1.0, o.x)
+				pile.position = o
+				root.add_child(pile)
 	var road_at := key.find("|camino")
 	if road_at != -1:
-		var road_mat := _mat("camino", Color(0.62, 0.5, 0.33))
-		var disc := CylinderMesh.new()
-		disc.radial_segments = 8
-		root.add_child(_shape(disc, Vector3(0.38, 0.02, 0.38), road_mat, Vector3(0, 0.012, 0)))
-		var mask := key.substr(road_at + 7, 6)
-		for i in 6:
-			if mask[i] != "1":
-				continue
-			var dir := Hex.to_world(Hex.DIRS[i])
-			var strip := _shape(BoxMesh.new(), Vector3(0.22, 0.02, dir.length() / 2.0), road_mat, dir / 4.0 + Vector3(0, 0.012, 0))
-			strip.rotation.y = atan2(dir.x, dir.z)
-			root.add_child(strip)
+		var pick := _road_tile(key.substr(road_at + 7, 6))
+		var road := _model("hex_road_" + pick[0], 1.0, KK_TILE_ROT + PI / 3.0 * pick[1])
+		_retexture(road, _road_texture())
+		road.position = Vector3(0, 0.001, 0)
+		root.add_child(road)
 	if key.contains("|puerto"):
 		var wood := _mat("madera_casa", Color(0.55, 0.38, 0.2))
 		root.add_child(_shape(BoxMesh.new(), Vector3(0.7, 0.08, 0.4), wood, Vector3(0, 0.12, 0)))
@@ -504,6 +618,45 @@ func _make_deco(p: Vector2i, key: String) -> Node3D:
 			cone.height = 1.0
 			root.add_child(_shape(cone, Vector3(0.4, 0.6, 0.4), fire_mat, o + Vector3(0, 0.3, 0)))
 	return root
+
+
+## Losetas de camino de KayKit: lados (en grados, en su propio giro) que tiene cada una.
+const ROAD_TILES := {
+	"A": [0, 180], "B": [180, 300], "C": [180, 240], "D": [60, 180, 300], "E": [0, 180, 300],
+	"F": [0, 60, 180], "G": [120, 180, 240], "H": [0, 120, 180, 240], "I": [60, 120, 240, 300],
+	"J": [0, 60, 120, 180], "K": [60, 120, 180, 240, 300], "L": [0, 60, 120, 180, 240, 300], "M": [180],
+}
+## Ángulo (grados) hacia cada vecino de Hex.DIRS, con la loseta ya girada 30°.
+const DIR_ANGLES := [30, -30, -90, -150, 150, 90]
+var _road_cache := {}
+
+
+## Elige la loseta y cuántos sextos de vuelta girarla para unir los vecinos marcados.
+func _road_tile(mask: String) -> Array:
+	if _road_cache.has(mask):
+		return _road_cache[mask]
+	var want := []
+	for i in 6:
+		if mask[i] == "1":
+			want.append(posmod(DIR_ANGLES[i], 360))
+	var result := ["A", 0]  # sin vecinos: tramo recto
+	for tile in ROAD_TILES:
+		var sides: Array = ROAD_TILES[tile]
+		if sides.size() != want.size():
+			continue
+		for k in 6:
+			var ok := true
+			for a in sides:
+				if not want.has(posmod(a - 30 - 60 * k, 360)):
+					ok = false
+					break
+			if ok:
+				result = [tile, k]
+				break
+		if result[0] == tile:
+			break
+	_road_cache[mask] = result
+	return result
 
 
 func _shape(mesh: PrimitiveMesh, scale_v: Vector3, mat: Material, pos: Vector3) -> MeshInstance3D:
@@ -577,12 +730,9 @@ func _build_city_houses(houses: Node3D, c: GameState.City) -> void:
 	houses.add_child(flag)
 
 
-## Tamaño de cada modelo de tropa en el tablero y altura de su etiqueta.
+## Tamaño de cada modelo de tropa en el tablero.
 const UNIT_SCALE := {"jinete": 0.33, "jinete_lancero": 0.33, "catapulta": 0.3, "escudero": 0.42,
 	"super_caballero": 0.45, "sacerdote": 0.45}
-const UNIT_LABEL_Y := {"jinete": 1.45, "jinete_lancero": 1.45, "catapulta": 1.15, "escudero": 1.3,
-	"super_caballero": 1.5, "sacerdote": 1.4}
-
 
 func _make_unit(u: GameState.Unit) -> Node3D:
 	var root := Node3D.new()
@@ -598,18 +748,90 @@ func _make_unit(u: GameState.Unit) -> Node3D:
 	boat.position.y = -0.05
 	boat.visible = false
 	root.add_child(boat)
-	var label := Label3D.new()
-	label.name = "Label"
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.font_size = 96
-	label.outline_size = 24
-	label.pixel_size = 0.003
-	label.no_depth_test = true
-	label.font = KoloniaTheme.font()
-	label.outline_modulate = KoloniaTheme.INK
-	label.position = Vector3(0, UNIT_LABEL_Y.get(u.type, 1.25), 0)
-	root.add_child(label)
+	var flag := _make_flag(u)
+	root.add_child(flag)
 	return root
+
+
+## Altura de la bandera (justo arriba de la cabeza) para cada tropa.
+const FLAG_Y := {"jinete": 1.42, "jinete_lancero": 1.42, "catapulta": 1.05, "escudero": 1.28,
+	"super_caballero": 1.45, "sacerdote": 1.38, "capitan": 1.25}
+## Banderita de la tropa: tela del color del jugador con la vida escrita encima.
+## Los veteranos llevan borde dorado y una estrella en la esquina.
+const FLAG_PIXEL := 0.0036
+const FLAG_CLOTH := Vector2(62, 63)   ## centro de la tela (donde va el número) en la imagen
+var _flag_textures := {}
+
+
+func _flag_texture(color: Color, veteran: bool) -> Texture2D:
+	var key := "%s_%s" % [color.to_html(), veteran]
+	if _flag_textures.has(key):
+		return _flag_textures[key]
+	var src: Texture2D = load("res://assets/ui/bandera_veterano.png" if veteran else "res://assets/ui/bandera.png")
+	var img := src.get_image()
+	if img.is_compressed():
+		img.decompress()
+	img = img.duplicate()
+	for y in img.get_height():
+		for x in img.get_width():
+			var c := img.get_pixel(x, y)
+			if c.a > 0.0 and c.s < 0.08 and c.v > 0.55:
+				var k := c.v / 0.94
+				img.set_pixel(x, y, Color(color.r * k, color.g * k, color.b * k, c.a))
+	var tex := ImageTexture.create_from_image(img)
+	_flag_textures[key] = tex
+	return tex
+
+
+func _make_flag(u: GameState.Unit) -> Node3D:
+	var flag := Node3D.new()
+	flag.name = "Flag"
+	flag.position = Vector3(0, FLAG_Y.get(u.type, 1.2), 0)
+	var cloth := Sprite3D.new()
+	cloth.name = "Cloth"
+	cloth.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	cloth.pixel_size = FLAG_PIXEL
+	cloth.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	cloth.shaded = false
+	cloth.render_priority = 1
+	cloth.no_depth_test = true  # que no la tapen los árboles
+	flag.add_child(cloth)
+	var hp := Label3D.new()
+	hp.name = "Hp"
+	hp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	hp.font_size = 80
+	hp.outline_size = 22
+	hp.pixel_size = 0.003
+	hp.font = KoloniaTheme.font()
+	hp.outline_modulate = KoloniaTheme.INK
+	hp.render_priority = 3
+	hp.no_depth_test = true
+	hp.outline_render_priority = 2
+	flag.add_child(hp)
+	_style_flag(flag, u.owner, false)
+	return flag
+
+
+func _style_flag(flag: Node3D, owner_id: int, veteran: bool) -> void:
+	var cloth: Sprite3D = flag.get_node("Cloth")
+	var color: Color = _gs.players[owner_id].color if owner_id >= 0 else Color.WHITE
+	cloth.texture = _flag_texture(color, veteran)
+	var size := Vector2(cloth.texture.get_size())
+	cloth.offset = Vector2.ZERO
+	var hp: Label3D = flag.get_node("Hp")
+	var k := FLAG_PIXEL / hp.pixel_size
+	hp.offset = Vector2(FLAG_CLOTH.x - size.x / 2.0, size.y / 2.0 - FLAG_CLOTH.y) * k
+	flag.set_meta("veteran", veteran)
+
+
+## Pone la vida en la bandera (y cambia el diseño si la tropa se volvió veterana).
+func set_flag(n: Node3D, hp_value: int, veteran := false, mark := "") -> void:
+	var flag: Node3D = n.get_node_or_null("Flag")
+	if flag == null:
+		return
+	if flag.get_meta("veteran", false) != veteran:
+		_style_flag(flag, n.get_meta("owner"), veteran)
+	(flag.get_node("Hp") as Label3D).text = str(hp_value) + mark
 
 
 ## Carga el modelo de assets/tropas y lo pinta con el color del jugador: las piezas

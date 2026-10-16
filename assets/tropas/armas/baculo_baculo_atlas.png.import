@@ -3,11 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dmckfyn2yyipc"
-path.s3tc="res://.godot/imported/baculo_baculo_atlas.png-b0bb832e709887ee1a0344e9deb7ed8d.s3tc.ctex"
-path.etc2="res://.godot/imported/baculo_baculo_atlas.png-b0bb832e709887ee1a0344e9deb7ed8d.etc2.ctex"
+path="res://.godot/imported/baculo_baculo_atlas.png-b0bb832e709887ee1a0344e9deb7ed8d.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 generator_parameters={
 "md5": "878ff9477498e44ef58cfa578d096e5c"
@@ -16,11 +14,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tropas/armas/baculo_baculo_atlas.png"
-dest_files=["res://.godot/imported/baculo_baculo_atlas.png-b0bb832e709887ee1a0344e9deb7ed8d.s3tc.ctex", "res://.godot/imported/baculo_baculo_atlas.png-b0bb832e709887ee1a0344e9deb7ed8d.etc2.ctex"]
+dest_files=["res://.godot/imported/baculo_baculo_atlas.png-b0bb832e709887ee1a0344e9deb7ed8d.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=0
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -42,4 +40,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=0
+detect_3d/compress_to=1

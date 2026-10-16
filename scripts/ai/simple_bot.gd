@@ -27,7 +27,9 @@ static func play_turn(gs: GameState, tree: SceneTree, on_step: Callable, delay: 
 			var dist := _walk_distances(gs, target)
 			var best_tile := u.pos
 			var best_d: int = dist.get(u.pos, 999)
-			for p in gs.reachable(u):
+			var options: Array = gs.reachable(u)
+			options.shuffle()  # entre casillas igual de buenas, una cualquiera
+			for p in options:
 				var d: int = dist.get(p, 999)
 				if d < best_d:
 					best_d = d
@@ -110,7 +112,7 @@ static func _land_path(gs: GameState, from: Vector2i, to: Vector2i) -> Array[Vec
 		var cur: Vector2i = frontier.pop_front()
 		if cur == to:
 			break
-		for n in Hex.neighbors(cur):
+		for n in _mixed_neighbors(cur):
 			if gs.is_passable(n) and not came.has(n):
 				came[n] = cur
 				frontier.append(n)
@@ -122,6 +124,14 @@ static func _land_path(gs: GameState, from: Vector2i, to: Vector2i) -> Array[Vec
 		path.push_front(cur)
 		cur = came[cur]
 	return path
+
+
+## Vecinos en orden al azar: así, cuando dos caminos empatan, el bot no prefiere
+## siempre la misma dirección (eso favorecía a una esquina del mapa).
+static func _mixed_neighbors(p: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = Hex.neighbors(p)
+	out.shuffle()
+	return out
 
 
 ## Si se da, el bot espera a que esto devuelva false (animaciones en curso) antes de seguir.
@@ -178,7 +188,7 @@ static func _nearest_unexplored(gs: GameState, u: GameState.Unit) -> Variant:
 	var frontier: Array[Vector2i] = [u.pos]
 	while not frontier.is_empty():
 		var cur: Vector2i = frontier.pop_front()
-		for n in Hex.neighbors(cur):
+		for n in _mixed_neighbors(cur):
 			if seen.has(n) or not gs.walkable(n, u.owner):
 				continue
 			seen[n] = true
@@ -194,7 +204,7 @@ static func _walk_distances(gs: GameState, target: Vector2i) -> Dictionary:
 	var frontier: Array[Vector2i] = [target]
 	while not frontier.is_empty():
 		var cur: Vector2i = frontier.pop_front()
-		for n in Hex.neighbors(cur):
+		for n in _mixed_neighbors(cur):
 			if gs.walkable(n, gs.current) and not dist.has(n):
 				dist[n] = dist[cur] + 1
 				frontier.append(n)
